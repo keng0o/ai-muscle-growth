@@ -1,20 +1,5 @@
-import { getApps, initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  DocumentData,
-  getDoc,
-  getDocs,
-  getFirestore,
-  limit,
-  orderBy,
-  query,
-  setDoc,
-  Timestamp,
-  where,
-} from "firebase/firestore";
+import firebase from "@react-native-firebase/app";
+import firestore from "@react-native-firebase/firestore";
 
 import {
   BodyMeasurement,
@@ -26,14 +11,16 @@ import {
 } from "@/types";
 import { firebaseConfig } from "./config";
 
-// Firebase初期化
-if (!getApps().length) {
-  initializeApp(firebaseConfig);
-}
+// React Native Firebaseは自動的に初期化されます
+// 追加の設定が必要な場合はここで行います
+const initializeFirebase = () => {
+  if (firebase.apps.length === 0) {
+    firebase.initializeApp(firebaseConfig);
+  }
+};
 
-// Firestoreを取得
-const db = getFirestore();
-const auth = getAuth();
+// 初期化を実行
+initializeFirebase();
 
 // コレクション名
 const COLLECTIONS = {
@@ -46,34 +33,25 @@ const COLLECTIONS = {
 };
 
 // Firestoreのタイムスタンプに変換
-const toFirestoreTimestamp = (date: Date) => Timestamp.fromDate(date);
+const toFirestoreTimestamp = (date: Date) => firestore.Timestamp.fromDate(date);
 
 // FirestoreのタイムスタンプからJSのDateに変換
-const fromFirestoreTimestamp = (timestamp: Timestamp) => timestamp.toDate();
-
-// ドキュメントデータの変換ヘルパー
-const convertTimestamps = (data: DocumentData, dateFields: string[]) => {
-  const result = { ...data };
-
-  dateFields.forEach((field) => {
-    if (result[field] && result[field] instanceof Timestamp) {
-      result[field] = fromFirestoreTimestamp(result[field]);
-    }
-  });
-
-  return result;
-};
+const fromFirestoreTimestamp = (timestamp: any) => timestamp.toDate();
 
 // ユーザープロフィールの操作
 export const userProfileService = {
   // ユーザープロフィールを取得
   async getUserProfile(userId: string): Promise<UserProfile | null> {
     try {
-      const docRef = doc(db, COLLECTIONS.USERS, userId);
-      const docSnap = await getDoc(docRef);
+      const docSnap = await firestore()
+        .collection(COLLECTIONS.USERS)
+        .doc(userId)
+        .get();
 
-      if (docSnap.exists()) {
+      if (docSnap.exists) {
         const data = docSnap.data();
+        if (!data) return null;
+
         return {
           ...data,
           id: docSnap.id,
@@ -93,17 +71,18 @@ export const userProfileService = {
   async saveUserProfile(profile: UserProfile): Promise<void> {
     try {
       const { id, ...profileData } = profile;
-      const docRef = doc(db, COLLECTIONS.USERS, id);
 
-      await setDoc(
-        docRef,
-        {
-          ...profileData,
-          createdAt: toFirestoreTimestamp(profile.createdAt),
-          updatedAt: toFirestoreTimestamp(new Date()),
-        },
-        { merge: true }
-      );
+      await firestore()
+        .collection(COLLECTIONS.USERS)
+        .doc(id)
+        .set(
+          {
+            ...profileData,
+            createdAt: toFirestoreTimestamp(profile.createdAt),
+            updatedAt: toFirestoreTimestamp(new Date()),
+          },
+          { merge: true }
+        );
     } catch (error) {
       console.error("Error saving user profile:", error);
       throw error;
@@ -117,12 +96,14 @@ export const workoutSessionService = {
   async saveWorkoutSession(session: WorkoutSession): Promise<void> {
     try {
       const { id, ...sessionData } = session;
-      const docRef = doc(db, COLLECTIONS.WORKOUT_SESSIONS, id);
 
-      await setDoc(docRef, {
-        ...sessionData,
-        date: toFirestoreTimestamp(session.date),
-      });
+      await firestore()
+        .collection(COLLECTIONS.WORKOUT_SESSIONS)
+        .doc(id)
+        .set({
+          ...sessionData,
+          date: toFirestoreTimestamp(session.date),
+        });
     } catch (error) {
       console.error("Error saving workout session:", error);
       throw error;
@@ -132,13 +113,12 @@ export const workoutSessionService = {
   // ユーザーのトレーニングセッションを取得
   async getUserWorkoutSessions(userId: string): Promise<WorkoutSession[]> {
     try {
-      const q = query(
-        collection(db, COLLECTIONS.WORKOUT_SESSIONS),
-        where("userId", "==", userId),
-        orderBy("date", "desc")
-      );
+      const querySnapshot = await firestore()
+        .collection(COLLECTIONS.WORKOUT_SESSIONS)
+        .where("userId", "==", userId)
+        .orderBy("date", "desc")
+        .get();
 
-      const querySnapshot = await getDocs(q);
       const sessions: WorkoutSession[] = [];
 
       querySnapshot.forEach((doc) => {
@@ -164,15 +144,14 @@ export const workoutSessionService = {
     endDate: Date
   ): Promise<WorkoutSession[]> {
     try {
-      const q = query(
-        collection(db, COLLECTIONS.WORKOUT_SESSIONS),
-        where("userId", "==", userId),
-        where("date", ">=", toFirestoreTimestamp(startDate)),
-        where("date", "<=", toFirestoreTimestamp(endDate)),
-        orderBy("date", "desc")
-      );
+      const querySnapshot = await firestore()
+        .collection(COLLECTIONS.WORKOUT_SESSIONS)
+        .where("userId", "==", userId)
+        .where("date", ">=", toFirestoreTimestamp(startDate))
+        .where("date", "<=", toFirestoreTimestamp(endDate))
+        .orderBy("date", "desc")
+        .get();
 
-      const querySnapshot = await getDocs(q);
       const sessions: WorkoutSession[] = [];
 
       querySnapshot.forEach((doc) => {
@@ -197,8 +176,10 @@ export const exerciseService = {
   // エクササイズを取得
   async getAllExercises(): Promise<Exercise[]> {
     try {
-      const q = query(collection(db, COLLECTIONS.EXERCISES));
-      const querySnapshot = await getDocs(q);
+      const querySnapshot = await firestore()
+        .collection(COLLECTIONS.EXERCISES)
+        .get();
+
       const exercises: Exercise[] = [];
 
       querySnapshot.forEach((doc) => {
@@ -218,12 +199,11 @@ export const exerciseService = {
   // 筋肉グループでエクササイズをフィルタリング
   async getExercisesByMuscleGroup(muscleGroup: string): Promise<Exercise[]> {
     try {
-      const q = query(
-        collection(db, COLLECTIONS.EXERCISES),
-        where("muscleGroup", "==", muscleGroup)
-      );
+      const querySnapshot = await firestore()
+        .collection(COLLECTIONS.EXERCISES)
+        .where("muscleGroup", "==", muscleGroup)
+        .get();
 
-      const querySnapshot = await getDocs(q);
       const exercises: Exercise[] = [];
 
       querySnapshot.forEach((doc) => {
@@ -247,16 +227,18 @@ export const goalService = {
   async saveGoal(goal: Goal): Promise<void> {
     try {
       const { id, ...goalData } = goal;
-      const docRef = doc(db, COLLECTIONS.GOALS, id);
 
-      await setDoc(docRef, {
-        ...goalData,
-        createdAt: toFirestoreTimestamp(goal.createdAt),
-        updatedAt: toFirestoreTimestamp(new Date()),
-        targetDate: goal.targetDate
-          ? toFirestoreTimestamp(goal.targetDate)
-          : null,
-      });
+      await firestore()
+        .collection(COLLECTIONS.GOALS)
+        .doc(id)
+        .set({
+          ...goalData,
+          createdAt: toFirestoreTimestamp(goal.createdAt),
+          updatedAt: toFirestoreTimestamp(new Date()),
+          targetDate: goal.targetDate
+            ? toFirestoreTimestamp(goal.targetDate)
+            : null,
+        });
     } catch (error) {
       console.error("Error saving goal:", error);
       throw error;
@@ -266,13 +248,12 @@ export const goalService = {
   // ユーザーの目標を取得
   async getUserGoals(userId: string): Promise<Goal[]> {
     try {
-      const q = query(
-        collection(db, COLLECTIONS.GOALS),
-        where("userId", "==", userId),
-        orderBy("createdAt", "desc")
-      );
+      const querySnapshot = await firestore()
+        .collection(COLLECTIONS.GOALS)
+        .where("userId", "==", userId)
+        .orderBy("createdAt", "desc")
+        .get();
 
-      const querySnapshot = await getDocs(q);
       const goals: Goal[] = [];
 
       querySnapshot.forEach((doc) => {
@@ -298,7 +279,7 @@ export const goalService = {
   // 目標を削除
   async deleteGoal(goalId: string): Promise<void> {
     try {
-      await deleteDoc(doc(db, COLLECTIONS.GOALS, goalId));
+      await firestore().collection(COLLECTIONS.GOALS).doc(goalId).delete();
     } catch (error) {
       console.error("Error deleting goal:", error);
       throw error;
@@ -314,12 +295,14 @@ export const muscleSimulationService = {
   ): Promise<void> {
     try {
       const { id, ...simulationData } = simulation;
-      const docRef = doc(db, COLLECTIONS.MUSCLE_SIMULATIONS, id);
 
-      await setDoc(docRef, {
-        ...simulationData,
-        date: toFirestoreTimestamp(simulation.date),
-      });
+      await firestore()
+        .collection(COLLECTIONS.MUSCLE_SIMULATIONS)
+        .doc(id)
+        .set({
+          ...simulationData,
+          date: toFirestoreTimestamp(simulation.date),
+        });
     } catch (error) {
       console.error("Error saving muscle simulation:", error);
       throw error;
@@ -331,14 +314,12 @@ export const muscleSimulationService = {
     userId: string
   ): Promise<MuscleGrowthSimulation | null> {
     try {
-      const q = query(
-        collection(db, COLLECTIONS.MUSCLE_SIMULATIONS),
-        where("userId", "==", userId),
-        orderBy("date", "desc"),
-        limit(1)
-      );
-
-      const querySnapshot = await getDocs(q);
+      const querySnapshot = await firestore()
+        .collection(COLLECTIONS.MUSCLE_SIMULATIONS)
+        .where("userId", "==", userId)
+        .orderBy("date", "desc")
+        .limit(1)
+        .get();
 
       if (!querySnapshot.empty) {
         const doc = querySnapshot.docs[0];
@@ -365,12 +346,14 @@ export const bodyMeasurementService = {
   async saveBodyMeasurement(measurement: BodyMeasurement): Promise<void> {
     try {
       const { id, ...measurementData } = measurement;
-      const docRef = doc(db, COLLECTIONS.BODY_MEASUREMENTS, id);
 
-      await setDoc(docRef, {
-        ...measurementData,
-        date: toFirestoreTimestamp(measurement.date),
-      });
+      await firestore()
+        .collection(COLLECTIONS.BODY_MEASUREMENTS)
+        .doc(id)
+        .set({
+          ...measurementData,
+          date: toFirestoreTimestamp(measurement.date),
+        });
     } catch (error) {
       console.error("Error saving body measurement:", error);
       throw error;
@@ -380,13 +363,12 @@ export const bodyMeasurementService = {
   // ユーザーの計測記録履歴を取得
   async getUserBodyMeasurements(userId: string): Promise<BodyMeasurement[]> {
     try {
-      const q = query(
-        collection(db, COLLECTIONS.BODY_MEASUREMENTS),
-        where("userId", "==", userId),
-        orderBy("date", "desc")
-      );
+      const querySnapshot = await firestore()
+        .collection(COLLECTIONS.BODY_MEASUREMENTS)
+        .where("userId", "==", userId)
+        .orderBy("date", "desc")
+        .get();
 
-      const querySnapshot = await getDocs(q);
       const measurements: BodyMeasurement[] = [];
 
       querySnapshot.forEach((doc) => {
